@@ -12,9 +12,7 @@ both, ready to use.
 ## Install
 
 **Via ventwig** (recommended for consumer projects):
-```
-ventwig add brian_appkit
-```
+Install ventwig as a development dependency.  Then modify your project `pyproject.toml`. See [ventwig](https://github.com/brian-pond/ventwig) documentation for more details.
 
 **Via pip** (for direct use or editable dev):
 ```
