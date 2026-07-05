@@ -18,7 +18,18 @@ def main() -> int:
         print(exc, file=sys.stderr)
         return 1
 
-    log.info("started", workers=settings.worker_count)
+    log.info("started", workers=settings.worker_count, env=settings.app_env)
+
+    # ── main loop ─────────────────────────────────────────────────────────────
+    # shutdown_event is set by bootstrap_app's SIGTERM/SIGINT handlers.
+    # wait(timeout) sleeps until the event is set or the timeout expires,
+    # so the loop wakes promptly on a signal rather than after a full sleep.
+    while not settings.shutdown_event.is_set():
+        # Replace with your real work (poll a queue, tick a scheduler, etc.)
+        log.debug("tick")
+        settings.shutdown_event.wait(timeout=5.0)
+
+    log.info("shutdown complete")
     return 0
 
 
