@@ -75,6 +75,7 @@ uppercased. For `app_name="my-service"` the prefix is `MY_SERVICE_`.
 
 | Field | Type | Default | Env var | Notes |
 |-------|------|---------|---------|-------|
+| `app_name` | `str` | set by `bootstrap_app` | — | Drives XDG dir properties; not settable via env var |
 | `app_env` | `AppEnv` | `"production"` | `MY_SERVICE_APP_ENV` | See auto log-format switching below |
 | `log_format` | `LogFormat` | auto | `MY_SERVICE_LOG_FORMAT` | Auto-selected from `app_env` if not set |
 | `log_level` | `LogLevel` | `"INFO"` | `MY_SERVICE_LOG_LEVEL` | |
@@ -130,6 +131,35 @@ MY_SERVICE_APP_ENV=development
 MY_SERVICE_DATABASE_URL=postgresql://user:pass@localhost/mydb
 MY_SERVICE_WORKER_COUNT=8
 MY_SERVICE_LOG_LEVEL=DEBUG
+```
+
+---
+
+## XDG directories
+
+Every `XdgSettings` instance exposes four read-only path properties derived
+from `app_name`. The directories follow the
+[XDG Base Directory Specification](https://specifications.freedesktop.org/basedir-spec/latest/)
+and respect the standard environment variable overrides (`$XDG_DATA_HOME` etc.).
+
+| Property | Typical path | Purpose |
+|----------|-------------|---------|
+| `settings.config_dir` | `~/.config/<app>/` | User config files, `.env` fallback |
+| `settings.data_dir` | `~/.local/share/<app>/` | Persistent application state |
+| `settings.cache_dir` | `~/.cache/<app>/` | Ephemeral data — safe to delete |
+| `settings.runtime_dir` | `/run/user/<uid>/<app>/` | PID files, Unix sockets |
+
+The directories are not created automatically — call `.mkdir(parents=True, exist_ok=True)`
+when your app first needs one:
+
+```python
+settings, log = bootstrap_app(MySettings, app_name="my-service")
+
+db_path = settings.data_dir / "state.db"
+settings.data_dir.mkdir(parents=True, exist_ok=True)
+
+pid_file = settings.runtime_dir / "my-service.pid"
+settings.runtime_dir.mkdir(parents=True, exist_ok=True)
 ```
 
 ---

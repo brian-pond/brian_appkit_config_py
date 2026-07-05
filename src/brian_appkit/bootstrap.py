@@ -27,7 +27,7 @@ from pathlib import Path
 from typing import Any, TypeVar
 
 import structlog
-from platformdirs import user_config_dir
+from platformdirs import user_cache_dir, user_config_dir, user_data_dir, user_runtime_dir
 from pydantic import ValidationError, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -75,9 +75,30 @@ class XdgSettings(BaseSettings):
         env_nested_delimiter="__",
     )
 
+    app_name: str = ""
     app_env: AppEnv = AppEnv.PRODUCTION
     log_format: LogFormat | None = None
     log_level: LogLevel = LogLevel.INFO
+
+    @property
+    def config_dir(self) -> Path:
+        """~/.config/<app_name>/ — where .env and user config files live."""
+        return Path(user_config_dir(self.app_name))
+
+    @property
+    def data_dir(self) -> Path:
+        """~/.local/share/<app_name>/ — persistent application state."""
+        return Path(user_data_dir(self.app_name))
+
+    @property
+    def cache_dir(self) -> Path:
+        """~/.cache/<app_name>/ — ephemeral data safe to delete."""
+        return Path(user_cache_dir(self.app_name))
+
+    @property
+    def runtime_dir(self) -> Path:
+        """/run/user/<uid>/<app_name>/ — PID files, Unix sockets, short-lived state."""
+        return Path(user_runtime_dir(self.app_name))
 
     @field_validator("app_env", "log_format", mode="before")
     @classmethod
@@ -134,12 +155,14 @@ def bootstrap_app(
             env_var = f"{prefix}{'__'.join(str(part) for part in error['loc']).upper()}"
             lines.append(f"  {field}: {error['msg']}  [{env_var}]")
         raise ConfigurationError("\n".join(lines)) from exc
-    # None means the caller did not explicitly configure log_format. Auto-select
-    # from app_env: DEVELOPMENT gets human-readable TEXT; all other envs get
-    # machine-parseable JSON for log aggregators.
+    # Resolve app_name onto the settings object so XDG dir properties work,
+    # and auto-select log_format from app_env when the caller has not set one.
+    updates: dict[str, object] = {"app_name": app_name}
     if settings.log_format is None:
-        auto_format = LogFormat.TEXT if settings.app_env is AppEnv.DEVELOPMENT else LogFormat.JSON
-        settings = settings.model_copy(update={"log_format": auto_format})
+        updates["log_format"] = (
+            LogFormat.TEXT if settings.app_env is AppEnv.DEVELOPMENT else LogFormat.JSON
+        )
+    settings = settings.model_copy(update=updates)
 
     configure_logging(settings)
     log = structlog.get_logger(app_name)

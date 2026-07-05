@@ -322,3 +322,47 @@ class TestReconfiguration:
         assert logging.getLogger().level == logging.WARNING
         bootstrap_app(_Minimal, app_name="test-app", log_level=LogLevel.DEBUG)
         assert logging.getLogger().level == logging.DEBUG
+
+
+# ── XDG directory properties ──────────────────────────────────────────────────
+
+class TestXdgDirs:
+    def test_app_name_set_on_settings(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        settings, _ = bootstrap_app(_Minimal, app_name="test-app")
+        assert settings.app_name == "test-app"
+
+    def test_config_dir_contains_app_name(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        settings, _ = bootstrap_app(_Minimal, app_name="test-app")
+        assert "test-app" in str(settings.config_dir)
+
+    def test_data_dir_contains_app_name(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        settings, _ = bootstrap_app(_Minimal, app_name="test-app")
+        assert "test-app" in str(settings.data_dir)
+
+    def test_cache_dir_contains_app_name(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        settings, _ = bootstrap_app(_Minimal, app_name="test-app")
+        assert "test-app" in str(settings.cache_dir)
+
+    def test_runtime_dir_contains_app_name(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        settings, _ = bootstrap_app(_Minimal, app_name="test-app")
+        assert "test-app" in str(settings.runtime_dir)
+
+    def test_dirs_return_path_objects(self, tmp_path, monkeypatch):
+        from pathlib import Path
+        monkeypatch.chdir(tmp_path)
+        settings, _ = bootstrap_app(_Minimal, app_name="test-app")
+        assert isinstance(settings.config_dir, Path)
+        assert isinstance(settings.data_dir, Path)
+        assert isinstance(settings.cache_dir, Path)
+        assert isinstance(settings.runtime_dir, Path)
+
+    def test_dirs_differ_from_each_other(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        settings, _ = bootstrap_app(_Minimal, app_name="test-app")
+        dirs = [settings.config_dir, settings.data_dir, settings.cache_dir, settings.runtime_dir]
+        assert len(set(dirs)) == len(dirs)
