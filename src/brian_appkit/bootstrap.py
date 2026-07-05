@@ -24,11 +24,11 @@ Config precedence (highest wins):
 """
 
 from pathlib import Path
-from typing import TypeVar
+from typing import Any, TypeVar
 
 import structlog
 from platformdirs import user_config_dir
-from pydantic import ValidationError
+from pydantic import ValidationError, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from ._logging import configure_logging
@@ -48,13 +48,18 @@ def _is_sensitive(field_name: str) -> bool:
     return any(sub in lower for sub in _SENSITIVE_SUBSTRINGS)
 
 
+def _redact(value: object, key: str) -> object:
+    if _is_sensitive(key):
+        return "***"
+    if isinstance(value, dict):
+        return {k: _redact(v, k) for k, v in value.items()}
+    return value
+
+
 def _dump_effective_config(
     settings: "XdgSettings", log: structlog.stdlib.BoundLogger, prefix: str
 ) -> None:
-    redacted = {
-        k: "***" if _is_sensitive(k) else v
-        for k, v in settings.model_dump().items()
-    }
+    redacted = {k: _redact(v, k) for k, v in settings.model_dump().items()}
     log.debug("effective configuration", env_prefix=prefix.rstrip("_"), **redacted)
 
 
@@ -71,15 +76,22 @@ class XdgSettings(BaseSettings):
     )
 
     app_env: AppEnv = AppEnv.PRODUCTION
-    log_format: LogFormat = LogFormat.TEXT
+    log_format: LogFormat | None = None
     log_level: LogLevel = LogLevel.INFO
+
+    @field_validator("log_level", mode="before")
+    @classmethod
+    def _normalize_log_level(cls, v: object) -> object:
+        if isinstance(v, str):
+            return v.upper()
+        return v
 
 
 def bootstrap_app(
     settings_cls: type[T],
     app_name: str,
     dump_config: bool = False,
-    **overrides,
+    **overrides: Any,
 ) -> tuple[T, structlog.stdlib.BoundLogger]:
     """Validate config and wire up logging in one call.
 
@@ -112,14 +124,13 @@ def bootstrap_app(
         lines = [f"Configuration error — {settings_cls.__name__}:"]
         for error in exc.errors():
             field = ".".join(str(part) for part in error["loc"])
-            env_var = f"{prefix}{field.upper()}"
+            env_var = f"{prefix}{'__'.join(str(part) for part in error['loc']).upper()}"
             lines.append(f"  {field}: {error['msg']}  [{env_var}]")
         raise ConfigurationError("\n".join(lines)) from exc
-    # Auto-select log format from app_env when the caller has not explicitly
-    # configured one (via env var, .env, or override kwarg). DEVELOPMENT gets
-    # human-readable TEXT; all other envs get machine-parseable JSON so log
-    # aggregators receive structured output without any per-app configuration.
-    if "log_format" not in settings.model_fields_set:
+    # None means the caller did not explicitly configure log_format. Auto-select
+    # from app_env: DEVELOPMENT gets human-readable TEXT; all other envs get
+    # machine-parseable JSON for log aggregators.
+    if settings.log_format is None:
         auto_format = LogFormat.TEXT if settings.app_env is AppEnv.DEVELOPMENT else LogFormat.JSON
         settings = settings.model_copy(update={"log_format": auto_format})
 

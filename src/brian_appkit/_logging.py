@@ -11,12 +11,16 @@ from ._types import LogFormat, LogLevel
 
 
 class _LoggingConfig(Protocol):
-    log_format: LogFormat
+    log_format: LogFormat | None
     log_level: LogLevel
 
 
 def configure_logging(settings: _LoggingConfig) -> None:
     """Call once at startup. Configures structlog to write to stdout."""
+    # Clear any cached loggers from a prior configure() call so that
+    # reconfiguration (e.g. between tests) takes full effect everywhere.
+    structlog.reset_defaults()
+
     shared_processors = [
         structlog.contextvars.merge_contextvars,
         structlog.stdlib.add_logger_name,
@@ -28,7 +32,11 @@ def configure_logging(settings: _LoggingConfig) -> None:
     # Exception rendering is split by format: JSON mode produces a structured
     # dict (type, value, frames) that log aggregators can index and query;
     # text mode produces a human-readable traceback string for the console.
-    if settings.log_format is LogFormat.JSON:
+    # None means "auto" — bootstrap_app resolves it before calling us, but
+    # callers invoking configure_logging directly get TEXT as a safe fallback.
+    log_format = settings.log_format if settings.log_format is not None else LogFormat.TEXT
+
+    if log_format is LogFormat.JSON:
         exc_processor: structlog.types.Processor = structlog.processors.ExceptionRenderer()
         renderer: structlog.types.Processor = structlog.processors.JSONRenderer()
     else:
@@ -57,5 +65,11 @@ def configure_logging(settings: _LoggingConfig) -> None:
     handler.setFormatter(formatter)
 
     root = logging.getLogger()
-    root.handlers = [handler]
+    # Remove any previously installed brian_appkit handler, leave all others
+    # (e.g. pytest's LogCaptureHandler, APM SDK handlers) intact.
+    root.handlers = [
+        h for h in root.handlers
+        if not isinstance(getattr(h, "formatter", None), structlog.stdlib.ProcessorFormatter)
+    ]
+    root.addHandler(handler)
     root.setLevel(settings.log_level.value)

@@ -9,7 +9,7 @@ from brian_appkit import XdgSettings
 
 
 class FooSettings(XdgSettings):
-    # Mandatory: no default — ValidationError names this field if absent
+    # Mandatory: no default — ConfigurationError names this field if absent
     database_url: str = Field(description="Postgres DSN, e.g. postgresql://user:pass@host/db")
 
     # Optional with range constraint
