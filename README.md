@@ -289,8 +289,11 @@ here, find the source and change it there.
 ## Development
 
 ```
-# Install dev dependencies (includes ruff)
+# Install dev dependencies (includes ruff and pytest)
 pip install -e ".[dev]"
+
+# Run tests
+pytest tests/
 
 # Lint
 ruff check src/ examples/
