@@ -208,6 +208,41 @@ MY_SERVICE_DATABASE__NAME=mydb
 - **Call sites are format-agnostic** — `log.info("event", key=value)` is identical
   regardless of which renderer is active.
 
+### Unhandled exception logging
+
+`bootstrap_app()` installs a custom `sys.excepthook` that routes any exception that
+escapes `main()` through structlog at `CRITICAL` level. In JSON mode this becomes a
+structured log event your aggregator can alert on. `KeyboardInterrupt` is left to
+Python's default handler (no traceback noise on Ctrl-C).
+
+---
+
+## Graceful shutdown
+
+`bootstrap_app()` installs handlers for `SIGTERM` and `SIGINT` that:
+
+1. Log `"shutdown signal received"` with the signal name.
+2. Set `settings.shutdown_event` — a `threading.Event` exposed as a property on every
+   `XdgSettings` instance.
+
+Poll or wait on that event in your main loop:
+
+```python
+settings, log = bootstrap_app(MySettings, app_name="my-service")
+
+log.info("started")
+while not settings.shutdown_event.is_set():
+    do_work()
+    settings.shutdown_event.wait(timeout=1.0)  # sleeps until signalled
+
+log.info("shutting down")
+```
+
+When systemd sends `SIGTERM`, the loop exits cleanly and your shutdown code runs
+before the process exits.
+
+Pass `handle_signals=False` to `bootstrap_app()` if you manage signals yourself.
+
 ---
 
 ## API reference
@@ -220,7 +255,7 @@ Built-in fields are documented in [Built-in environment variables](#built-in-env
 
 ---
 
-### `bootstrap_app(settings_cls, app_name, dump_config=False, **overrides) → (settings, log)`
+### `bootstrap_app(settings_cls, app_name, dump_config=False, handle_signals=True, **overrides) → (settings, log)`
 
 The single entry point. Call once at startup.
 
@@ -229,7 +264,8 @@ The single entry point. Call once at startup.
 | `settings_cls` | Your `XdgSettings` subclass (the class itself, not an instance) |
 | `app_name` | Canonical app name, e.g. `"my-service"`. Drives env var prefix and XDG path. |
 | `dump_config` | If `True`, logs all effective settings at `DEBUG` level after startup. Fields whose names contain `secret`, `password`, `token`, `key`, `credential`, or `auth` are automatically redacted. |
-| `**overrides` | Optional field values; take highest precedence over all config sources. Must not collide with `dump_config`. |
+| `handle_signals` | If `True` (default), installs SIGTERM/SIGINT handlers that set `settings.shutdown_event` and installs `sys.excepthook` to log unhandled exceptions. Pass `False` to manage signals yourself. |
+| `**overrides` | Optional field values; take highest precedence over all config sources. Must not collide with `dump_config` or `handle_signals`. |
 
 Returns `(settings, log)` where `settings` is a fully validated instance of
 `settings_cls` and `log` is a `structlog.stdlib.BoundLogger`.

@@ -1,21 +1,28 @@
 import logging
+import signal
+import sys
 
 import pytest
 import structlog
 
 
 @pytest.fixture(autouse=True)
-def restore_logging():
-    """Restore root logger and structlog state after every test.
+def restore_globals():
+    """Restore global state mutated by bootstrap_app() after every test.
 
-    configure_logging() mutates global state (root logger handlers, structlog
-    config). Without this fixture, state leaks between tests and the order
-    of execution affects results.
+    Covers: root logger handlers/level, structlog config, sys.excepthook,
+    and SIGTERM/SIGINT signal handlers.
     """
     root = logging.getLogger()
     original_handlers = root.handlers[:]
     original_level = root.level
+    original_excepthook = sys.excepthook
+    original_sigterm = signal.getsignal(signal.SIGTERM)
+    original_sigint = signal.getsignal(signal.SIGINT)
     yield
     root.handlers = original_handlers
     root.setLevel(original_level)
     structlog.reset_defaults()
+    sys.excepthook = original_excepthook
+    signal.signal(signal.SIGTERM, original_sigterm)
+    signal.signal(signal.SIGINT, original_sigint)

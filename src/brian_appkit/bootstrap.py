@@ -23,15 +23,17 @@ Config precedence (highest wins):
     5. Field defaults
 """
 
+import threading
 from pathlib import Path
 from typing import Any, TypeVar
 
 import structlog
 from platformdirs import user_cache_dir, user_config_dir, user_data_dir, user_runtime_dir
-from pydantic import ValidationError, field_validator
+from pydantic import PrivateAttr, ValidationError, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from ._logging import configure_logging
+from ._shutdown import install_excepthook, install_signal_handlers
 from ._types import AppEnv, ConfigurationError, LogFormat, LogLevel
 
 T = TypeVar("T", bound="XdgSettings")
@@ -75,10 +77,17 @@ class XdgSettings(BaseSettings):
         env_nested_delimiter="__",
     )
 
+    _shutdown_event: threading.Event = PrivateAttr(default_factory=threading.Event)
+
     app_name: str = ""
     app_env: AppEnv = AppEnv.PRODUCTION
     log_format: LogFormat | None = None
     log_level: LogLevel = LogLevel.INFO
+
+    @property
+    def shutdown_event(self) -> threading.Event:
+        """Set when SIGTERM or SIGINT is received. Poll or wait on this in your main loop."""
+        return self._shutdown_event
 
     @property
     def config_dir(self) -> Path:
@@ -119,6 +128,7 @@ def bootstrap_app(
     settings_cls: type[T],
     app_name: str,
     dump_config: bool = False,
+    handle_signals: bool = True,
     **overrides: Any,
 ) -> tuple[T, structlog.stdlib.BoundLogger]:
     """Validate config and wire up logging in one call.
@@ -133,6 +143,11 @@ def bootstrap_app(
         'key', 'credential', or 'auth' are automatically redacted.
         Note: dump_config is consumed here and must not match a settings field
         name; pass such overrides via environment variable instead.
+    handle_signals: if True (default), installs SIGTERM/SIGINT handlers that
+        set settings.shutdown_event and log the signal name. Also installs
+        sys.excepthook to route unhandled exceptions through structlog.
+        Set False when you manage signals yourself or in unit tests that
+        assert on sys.excepthook state.
     """
     xdg_fallback = str(Path(user_config_dir(app_name)) / ".env")
     prefix = f"{app_name.upper().replace('-', '_')}_"
@@ -166,6 +181,9 @@ def bootstrap_app(
 
     configure_logging(settings)
     log = structlog.get_logger(app_name)
+    if handle_signals:
+        install_signal_handlers(settings.shutdown_event, log)
+        install_excepthook(log)
     if dump_config:
         _dump_effective_config(settings, log, prefix)
     return settings, log
