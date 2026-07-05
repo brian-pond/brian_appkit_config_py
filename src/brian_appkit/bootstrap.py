@@ -60,7 +60,7 @@ def _dump_effective_config(
     settings: "XdgSettings", log: structlog.stdlib.BoundLogger, prefix: str
 ) -> None:
     redacted = {k: _redact(v, k) for k, v in settings.model_dump().items()}
-    log.debug("effective configuration", env_prefix=prefix.rstrip("_"), **redacted)
+    log.debug("effective configuration", env_prefix=prefix[:-1], **redacted)
 
 
 class XdgSettings(BaseSettings):
@@ -78,6 +78,13 @@ class XdgSettings(BaseSettings):
     app_env: AppEnv = AppEnv.PRODUCTION
     log_format: LogFormat | None = None
     log_level: LogLevel = LogLevel.INFO
+
+    @field_validator("app_env", "log_format", mode="before")
+    @classmethod
+    def _normalize_lowercase(cls, v: object) -> object:
+        if isinstance(v, str):
+            return v.lower()
+        return v
 
     @field_validator("log_level", mode="before")
     @classmethod
